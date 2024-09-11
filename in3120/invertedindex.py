@@ -115,7 +115,6 @@ class InMemoryInvertedIndex(InvertedIndex):
         """
         for document in self._corpus:
             for field in fields:
-
                 terms = self.get_terms(document.get_field(field, None))
                 if terms is None:
                     continue
@@ -127,9 +126,8 @@ class InMemoryInvertedIndex(InvertedIndex):
 
                     posting = next((posting for posting in self._posting_lists[term_id] if posting.document_id == document.document_id), None)
                     if posting is None:
-                        posting = Posting(document.document_id, 1)
+                        posting = Posting(document.document_id, 0)
                         self._posting_lists[term_id].append_posting(posting)
-                        continue
 
                     posting.term_frequency += 1
 

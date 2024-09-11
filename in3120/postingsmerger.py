@@ -1,6 +1,8 @@
 # pylint: disable=missing-module-docstring
 
 from typing import Iterator
+
+from . import InMemoryPostingList
 from .posting import Posting
 
 
@@ -34,7 +36,19 @@ class PostingsMerger:
         The posting lists are assumed sorted in increasing order according
         to the document identifiers.
         """
-        raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
+        posting1 = next(iter1, None)
+        posting2 = next(iter2, None)
+
+        while posting1 is not None and posting2 is not None:
+            if posting1.document_id == posting2.document_id:
+                yield Posting(posting1.document_id, min(posting1.term_frequency, posting2.term_frequency))
+                posting1 = next(iter1, None)
+                posting2 = next(iter2, None)
+            elif posting1.document_id < posting2.document_id:
+                posting1 = next(iter1, None)
+            else:
+                posting2 = next(iter2, None)
+
 
     @staticmethod
     def union(iter1: Iterator[Posting], iter2: Iterator[Posting]) -> Iterator[Posting]:
@@ -51,7 +65,33 @@ class PostingsMerger:
         The posting lists are assumed sorted in increasing order according
         to the document identifiers.
         """
-        raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
+        posting1 = next(iter1, None)
+        posting2 = next(iter2, None)
+
+        while True:
+            if posting1 is None and posting2 is None:
+                break
+            elif posting1 is None:
+                yield posting2
+                posting2 = next(iter2, None)
+            elif posting2 is None:
+                yield posting1
+                posting1 = next(iter1, None)
+            else:
+                if posting1.document_id == posting2.document_id:
+                    yield Posting(posting1.document_id, max(posting1.term_frequency, posting2.term_frequency))
+                    posting1 = next(iter1, None)
+                    posting2 = next(iter2, None)
+                elif posting1.document_id < posting2.document_id:
+                    yield posting1
+                    posting1 = next(iter1, None)
+                else:
+                    yield posting2
+                    posting2 = next(iter2, None)
+
+
+
+        # raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
 
     @staticmethod
     def difference(iter1: Iterator[Posting], iter2: Iterator[Posting]) -> Iterator[Posting]:
@@ -68,4 +108,19 @@ class PostingsMerger:
         The posting lists are assumed sorted in increasing order according
         to the document identifiers.
         """
-        raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
+        posting1 = next(iter1, None)
+        posting2 = next(iter2, None)
+
+        while posting1 is not None:
+            if posting2 is None:
+                yield posting1
+                posting1 = next(iter1, None)
+            elif posting1.document_id < posting2.document_id:
+                yield posting1
+                posting1 = next(iter1, None)
+            elif posting1.document_id == posting2.document_id:
+                posting1 = next(iter1, None)
+                posting2 = next(iter2, None)
+            else:
+                posting2 = next(iter2, None)
+        # raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
