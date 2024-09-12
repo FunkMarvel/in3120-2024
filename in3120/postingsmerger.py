@@ -1,8 +1,6 @@
 # pylint: disable=missing-module-docstring
 
 from typing import Iterator
-
-from . import InMemoryPostingList
 from .posting import Posting
 
 
@@ -36,9 +34,12 @@ class PostingsMerger:
         The posting lists are assumed sorted in increasing order according
         to the document identifiers.
         """
-        posting1 = next(iter1, None)
-        posting2 = next(iter2, None)
+        posting1 = next(iter1, None)  # don't know if this counts as temporary data structures,
+        posting2 = next(iter2, None)  # but didn't figure out how to do the selective iteration
+                                      # without the posting1 and posting2 temp references.
 
+        # would appreciate some feedback on writing proper/more pythonic code,
+        # as my background is C++ and C#.
         while posting1 is not None and posting2 is not None:
             if posting1.document_id == posting2.document_id:
                 yield Posting(posting1.document_id, min(posting1.term_frequency, posting2.term_frequency))
@@ -68,26 +69,17 @@ class PostingsMerger:
         posting1 = next(iter1, None)
         posting2 = next(iter2, None)
 
-        while True:
-            if posting1 is None and posting2 is None:
-                break
-            elif posting1 is None:
-                yield posting2
-                posting2 = next(iter2, None)
-            elif posting2 is None:
+        while posting1 is not None or posting2 is not None:
+            if posting2 is None or (posting1 is not None and posting1.document_id < posting2.document_id):
                 yield posting1
                 posting1 = next(iter1, None)
+            elif posting1 is not None and posting1.document_id == posting2.document_id:
+                yield Posting(posting1.document_id, max(posting1.term_frequency, posting2.term_frequency))
+                posting1 = next(iter1, None)
+                posting2 = next(iter2, None)
             else:
-                if posting1.document_id == posting2.document_id:
-                    yield Posting(posting1.document_id, max(posting1.term_frequency, posting2.term_frequency))
-                    posting1 = next(iter1, None)
-                    posting2 = next(iter2, None)
-                elif posting1.document_id < posting2.document_id:
-                    yield posting1
-                    posting1 = next(iter1, None)
-                else:
-                    yield posting2
-                    posting2 = next(iter2, None)
+                yield posting2
+                posting2 = next(iter2, None)
 
 
 
@@ -112,10 +104,7 @@ class PostingsMerger:
         posting2 = next(iter2, None)
 
         while posting1 is not None:
-            if posting2 is None:
-                yield posting1
-                posting1 = next(iter1, None)
-            elif posting1.document_id < posting2.document_id:
+            if posting2 is None or posting1.document_id < posting2.document_id:
                 yield posting1
                 posting1 = next(iter1, None)
             elif posting1.document_id == posting2.document_id:
@@ -123,4 +112,17 @@ class PostingsMerger:
                 posting2 = next(iter2, None)
             else:
                 posting2 = next(iter2, None)
-        # raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
+
+# example run of repl.py a-2:
+r"""
+(venv) PS E:\Documents\in3120-2024\tests> python.exe .\repl.py a-2
+Building inverted index from English name corpus...
+Enter a complex Boolean query expression and find matching documents.
+Lookup options are {'optimize': True}.
+Ctrl-C to exit.
+query>AND(Alexander, OR(Davis, Pratt))
+[{'document': {'document_id': 1968, 'fields': {'body': 'Alexander Davis'}}},
+ {'document': {'document_id': 2667, 'fields': {'body': 'Alexander Pratt'}}}]
+Evaluation took 0.00024259999918285757 seconds.
+query>
+"""

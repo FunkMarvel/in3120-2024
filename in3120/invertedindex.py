@@ -3,16 +3,14 @@
 # pylint: disable=unnecessary-pass
 # pylint: disable=unused-argument
 
-import itertools
 from abc import ABC, abstractmethod
-from collections import Counter
 from typing import Iterable, Iterator, List, Tuple, Dict
 from .dictionary import InMemoryDictionary
 from .normalizer import Normalizer
 from .tokenizer import Tokenizer
 from .corpus import Corpus
 from .posting import Posting
-from .postinglist import CompressedInMemoryPostingList, InMemoryPostingList, PostingList
+from .postinglist import InMemoryPostingList, PostingList
 
 
 class InvertedIndex(ABC):
@@ -114,8 +112,8 @@ class InMemoryInvertedIndex(InvertedIndex):
         ranking. See https://nlp.stanford.edu/IR-book/html/htmledition/positional-indexes-1.html for
         further details.
         """
-        for document in self._corpus:
-            for field in fields:
+        for document in self._corpus: # wasn't sure if I should parse the corpus into a buffer of terms first,
+            for field in fields:      # or if handling it document by document, like this, is ok.
                 terms = self.get_terms(document.get_field(field, None))
                 if terms is None:
                     continue
@@ -264,3 +262,46 @@ class AccessLoggedInvertedIndex(InvertedIndex):
         Returns the list of postings that clients have accessed so far.
         """
         return self._accesses
+
+
+# don't know if this is needed, but
+# example run of unittests:
+r"""
+(venv) PS E:\Documents\in3120-2024\tests> python.exe .\assignments.py a
+test_access_postings (test_inmemoryinvertedindexwithoutcompression.TestInMemoryInvertedIndexWithoutCompression.test_access_postings) ... ok
+test_access_vocabulary (test_inmemoryinvertedindexwithoutcompression.TestInMemoryInvertedIndexWithoutCompression.test_access_vocabulary) ... ok
+test_mesh_corpus (test_inmemoryinvertedindexwithoutcompression.TestInMemoryInvertedIndexWithoutCompression.test_mesh_corpus) ... ok
+test_multiple_fields (test_inmemoryinvertedindexwithoutcompression.TestInMemoryInvertedIndexWithoutCompression.test_multiple_fields) ... ok
+test_empty_lists (test_postingsmerger.TestPostingsMerger.test_empty_lists) ... ok
+test_ends_with_same_so_tail_is_empty (test_postingsmerger.TestPostingsMerger.test_ends_with_same_so_tail_is_empty) ... ok
+test_order_dependence (test_postingsmerger.TestPostingsMerger.test_order_dependence) ... ok
+test_order_independence (test_postingsmerger.TestPostingsMerger.test_order_independence) ... ok
+test_uncompressed_mesh_corpus (test_postingsmerger.TestPostingsMerger.test_uncompressed_mesh_corpus) ... ok
+test_uses_yield (test_postingsmerger.TestPostingsMerger.test_uses_yield) ... ok
+test_malformed_queries (test_booleansearchengine.TestBooleanSearchEngine.test_malformed_queries) ... ok
+test_optimization (test_booleansearchengine.TestBooleanSearchEngine.test_optimization) ... ok
+test_valid_expressions (test_booleansearchengine.TestBooleanSearchEngine.test_valid_expressions) ... ok
+
+----------------------------------------------------------------------
+Ran 13 tests in 0.739s
+
+OK
+(venv) PS E:\Documents\in3120-2024\tests> 
+"""
+
+# example run of repl.py a-1:
+r"""
+(venv) PS E:\Documents\in3120-2024\tests> python.exe .\repl.py a-1
+Building inverted index from Cranfield corpus...
+Enter one or more index terms and inspect their posting lists.
+Ctrl-C to exit.
+terms>stop break quantum
+{'break': [{'document_id': 176, 'term_frequency': 1},
+           {'document_id': 372, 'term_frequency': 1},
+           {'document_id': 520, 'term_frequency': 1},
+           {'document_id': 1247, 'term_frequency': 1}],
+ 'quantum': [{'document_id': 777, 'term_frequency': 1}],
+ 'stop': []}
+Evaluation took 5.5999997130129486e-05 seconds.
+terms>
+"""
