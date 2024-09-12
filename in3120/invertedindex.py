@@ -6,9 +6,6 @@
 import itertools
 from abc import ABC, abstractmethod
 from collections import Counter
-from operator import contains
-
-from lib2to3.btm_utils import tokens
 from typing import Iterable, Iterator, List, Tuple, Dict
 from .dictionary import InMemoryDictionary
 from .normalizer import Normalizer
@@ -70,6 +67,10 @@ class InvertedIndex(ABC):
         Returns the number of times the given term occurs in the indexed corpus, across
         all documents.
         """
+        new_term = next(self.get_terms(term), None)
+        if new_term is None:
+            return 0
+
         return sum(p.term_frequency for p in self.get_postings_iterator(term))
 
 
@@ -129,7 +130,7 @@ class InMemoryInvertedIndex(InvertedIndex):
                         posting = Posting(document.document_id, 0)
                         self._posting_lists[term_id].append_posting(posting)
 
-                    posting.term_frequency += 1
+                    posting.term_frequency += 1  # manipulates element in posting-list, due to being a shallow copy
 
     def _add_to_dictionary(self, term: str) -> int:
         """
@@ -144,7 +145,10 @@ class InMemoryInvertedIndex(InvertedIndex):
         must be kept sorted so that we can efficiently traverse and
         merge them when querying the inverted index.
         """
-        self._posting_lists.append(InMemoryPostingList())
+        assert term_id >= 0
+        assert term_frequency >= 0
+        if len(self._posting_lists) <= term_id:
+            self._posting_lists.append(InMemoryPostingList())
         self._posting_lists[term_id].append_posting(Posting(document_id, term_frequency))
 
     def _finalize_index(self):
@@ -175,7 +179,11 @@ class InMemoryInvertedIndex(InvertedIndex):
             return iter([])
 
     def get_document_frequency(self, term: str) -> int:
-        term_id = self._dictionary.get_term_id(term)
+        normalized_term = next(self.get_terms(term), None)
+        if normalized_term is None:
+            return 0
+
+        term_id = self._dictionary.get_term_id(normalized_term)
         if term_id is not None:
             return len(self._posting_lists[term_id])
         else:
