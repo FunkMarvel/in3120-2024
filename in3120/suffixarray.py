@@ -32,6 +32,16 @@ class SuffixArray:
         Builds a simple suffix array from the set of named fields in the document collection.
         The suffix array allows us to search across all named fields in one go.
         """
+        for document in self.__corpus:
+            buffer = ""
+            for field in fields:
+                text = document.get_field(field, None)
+                if text is None:
+                    continue
+
+                buffer += " " + text
+            self.__haystack.append((document.document_id, self.__normalizer.canonicalize(buffer)))
+
         #raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
 
     def __normalize(self, buffer: str) -> str:
