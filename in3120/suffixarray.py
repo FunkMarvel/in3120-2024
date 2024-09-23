@@ -15,7 +15,6 @@ class SuffixArray:
     """
     A simple suffix array implementation. Allows us to conduct efficient substring searches.
     The prefix of a suffix is an infix!
-
     In a serious application we'd make use of least common prefixes (LCPs), pay more attention
     to memory usage, and add more lookup/evaluation features.
     """
@@ -33,14 +32,15 @@ class SuffixArray:
         Builds a simple suffix array from the set of named fields in the document collection.
         The suffix array allows us to search across all named fields in one go.
         """
-        raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
+        #raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
 
     def __normalize(self, buffer: str) -> str:
         """
         Produces a normalized version of the given string. Both queries and documents need to be
         identically processed for lookups to succeed.
         """
-        raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
+        return self.__normalizer.normalize(buffer)
+        #raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
 
     def __binary_search(self, needle: str) -> int:
         """
@@ -52,7 +52,7 @@ class SuffixArray:
         prior to Python 3.10 due to how we represent the suffixes via (index, offset) tuples. Version 3.10
         added support for specifying a key.
         """
-        raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
+        #raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
 
     def evaluate(self, query: str, options: dict) -> Iterator[Dict[str, Any]]:
         """
@@ -70,4 +70,4 @@ class SuffixArray:
         The results yielded back to the client are dictionaries having the keys "score" (int) and
         "document" (Document).
         """
-        raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
+        #raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
