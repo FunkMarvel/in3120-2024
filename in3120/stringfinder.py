@@ -45,4 +45,4 @@ class StringFinder:
         In a serious application we'd add more lookup/evaluation features, e.g., support for prefix matching,
         support for leftmost-longest matching (instead of reporting all matches), and more.
         """
-        raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
+        # raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
