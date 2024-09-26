@@ -45,4 +45,40 @@ class StringFinder:
         In a serious application we'd add more lookup/evaluation features, e.g., support for prefix matching,
         support for leftmost-longest matching (instead of reporting all matches), and more.
         """
+        tokens = self.__tokenizer.tokens(self.__normalizer.canonicalize(buffer))
+        terms = [(self.__normalizer.normalize(t), (s_idx, e_idx)) for (t, (s_idx, e_idx)) in tokens]
+
+        live_states: List[Tuple[Trie, int, str]] = []
+
+        for term, (start_idx, stop_idx) in terms:
+            node = self.__trie.consume(term)
+            if node is not None:
+                if node.is_final():
+                    tokens = self.__tokenizer.tokens(buffer[start_idx:stop_idx])
+                    tokenized_buffer = self.__tokenizer.join(tokens)
+                    yield {
+                            "match": term,
+                            "surface": tokenized_buffer,
+                            "span": (start_idx, stop_idx),
+                            "meta": node.get_meta()
+                    }
+                live_states.append((node, start_idx, term))
+
+            for i, state in enumerate(live_states):
+                state_node = state[0]
+                state_start = state[1]
+                state_term = state[2]
+
+                new_node = state_node.consume(' ' + term)
+                if new_node is not None:
+                    if new_node.is_final():
+                        tokens = self.__tokenizer.tokens(buffer[state_start:stop_idx])
+                        tokenized_buffer = self.__tokenizer.join(tokens)
+                        yield {
+                            "match": state_term + " " + term,
+                            "surface": tokenized_buffer,
+                            "span": (state_start, stop_idx),
+                            "meta": new_node.get_meta()
+                        }
+                    live_states[i] = (new_node, state_start, state_term + " " + term)
         # raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
