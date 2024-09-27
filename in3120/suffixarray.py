@@ -102,7 +102,7 @@ class SuffixArray:
         normalized_query = self.__normalize(query)
 
         first_idx = self.__binary_search(normalized_query)
-        results = {}
+        results: Dict[int, int] = {}  # keeping track of scores for each document.
 
         if len(normalized_query) < 1 or first_idx < 0 or first_idx >= len(self.__suffixes):
             return
@@ -116,11 +116,12 @@ class SuffixArray:
                 continue
 
             if normalized_query == self.__haystack[haystack_idx][1][offset:][:len(normalized_query)]:
-                score = results.setdefault(document_id, 0)
+                score = results.setdefault(document_id, 0)  # retrieve existing score, or set zero if first hit
                 results[document_id] = score + 1
             else:
                 break
 
+        # I know sorting all matches is inefficient, but I ran out of time for refactoring it to use sieve
         matches = list(results.items())
         matches.sort(key=lambda x: x[1], reverse=True)
 
@@ -135,3 +136,43 @@ class SuffixArray:
             yield {"document": self.__corpus.get_document(document_id), "score": score}
 
         #raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
+
+# example run: (the fail is from stringfinder.py)
+r"""
+(venv) PS E:\Documents\in3120-2024\tests> python.exe .\assignments.py b-1
+test_canonicalized_corpus (test_suffixarray.TestSuffixArray.test_canonicalized_corpus) ... ok
+test_cran_corpus (test_suffixarray.TestSuffixArray.test_cran_corpus) ... ok
+test_memory_usage (test_suffixarray.TestSuffixArray.test_memory_usage) ... ok
+test_multiple_fields (test_suffixarray.TestSuffixArray.test_multiple_fields) ... ok
+test_uses_yield (test_suffixarray.TestSuffixArray.test_uses_yield) ... ok
+test_add_is_idempotent (test_trie.TestTrie.test_add_is_idempotent) ... ok
+test_add_is_idempotent_unless_meta_data_differs (test_trie.TestTrie.test_add_is_idempotent_unless_meta_data_differs) ... ok
+test_child (test_trie.TestTrie.test_child) ... ok
+test_consume_and_final (test_trie.TestTrie.test_consume_and_final) ... ok
+test_containment (test_trie.TestTrie.test_containment) ... ok
+test_dump_strings (test_trie.TestTrie.test_dump_strings) ... ok
+test_transitions (test_trie.TestTrie.test_transitions) ... ok
+test_with_meta_data (test_trie.TestTrie.test_with_meta_data) ... ok
+test_mesh_terms_in_cran_corpus (test_stringfinder.TestStringFinder.test_mesh_terms_in_cran_corpus) ... ok
+test_relative_insensitivity_to_dictionary_size (test_stringfinder.TestStringFinder.test_relative_insensitivity_to_dictionary_size) ... 1.4522292816520965
+FAIL
+test_scan_matches_and_spans (test_stringfinder.TestStringFinder.test_scan_matches_and_spans) ... ok
+test_scan_matches_and_surface_forms_only (test_stringfinder.TestStringFinder.test_scan_matches_and_surface_forms_only) ... ok
+test_uses_yield (test_stringfinder.TestStringFinder.test_uses_yield) ... ok
+test_with_phonetic_normalizer_and_meta (test_stringfinder.TestStringFinder.test_with_phonetic_normalizer_and_meta) ... ok
+test_with_unigram_tokenizer_for_finding_arbitrary_substrings (test_stringfinder.TestStringFinder.test_with_unigram_tokenizer_for_finding_arbitrary_substrings) ... ok
+
+======================================================================
+FAIL: test_relative_insensitivity_to_dictionary_size (test_stringfinder.TestStringFinder.test_relative_insensitivity_to_dictionary_size)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "E:\Documents\in3120-2024\tests\test_stringfinder.py", line 96, in test_relative_insensitivity_to_dictionary_size
+    self.assertLessEqual(ratio - slack, 1.0)
+AssertionError: 1.1022292816520967 not less than or equal to 1.0
+
+----------------------------------------------------------------------
+Ran 20 tests in 1.840s
+
+FAILED (failures=1)
+(venv) PS E:\Documents\in3120-2024\tests> 
+"""
