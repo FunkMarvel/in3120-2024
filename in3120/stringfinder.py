@@ -51,34 +51,41 @@ class StringFinder:
         live_states: List[Tuple[Trie, int, str]] = []
 
         for term, (start_idx, stop_idx) in terms:
+            for state in list(live_states):
+                state_node = state[0]
+                state_start = state[1]
+                state_term = state[2]
+                state_stop = len(state_term) + state_start
+                combined_term = self.__tokenizer.join(iter([
+                    (state_term, (state_start, state_stop)), (term, (start_idx, stop_idx))
+                ]))
+
+                new_node = state_node.consume(combined_term[state_stop-state_start:])
+                if new_node is not None:
+                    if new_node.is_final():
+                        tokens = self.__tokenizer.tokens(buffer[state_start:stop_idx])
+                        tokenized_buffer = self.__tokenizer.join(tokens)
+                        yield {
+                            "match": combined_term,
+                            "surface": tokenized_buffer,
+                            "span": (state_start, stop_idx),
+                            "meta": new_node.get_meta()
+                        }
+                    live_states.remove(state)
+                    live_states.append((new_node, state_start, combined_term))
+                else:
+                    live_states.remove(state)
+
             node = self.__trie.consume(term)
             if node is not None:
                 if node.is_final():
                     tokens = self.__tokenizer.tokens(buffer[start_idx:stop_idx])
                     tokenized_buffer = self.__tokenizer.join(tokens)
                     yield {
-                            "match": term,
-                            "surface": tokenized_buffer,
-                            "span": (start_idx, stop_idx),
-                            "meta": node.get_meta()
+                        "match": term,
+                        "surface": tokenized_buffer,
+                        "span": (start_idx, stop_idx),
+                        "meta": node.get_meta()
                     }
                 live_states.append((node, start_idx, term))
-
-            for i, state in enumerate(live_states):
-                state_node = state[0]
-                state_start = state[1]
-                state_term = state[2]
-
-                new_node = state_node.consume(' ' + term)
-                if new_node is not None:
-                    if new_node.is_final():
-                        tokens = self.__tokenizer.tokens(buffer[state_start:stop_idx])
-                        tokenized_buffer = self.__tokenizer.join(tokens)
-                        yield {
-                            "match": state_term + " " + term,
-                            "surface": tokenized_buffer,
-                            "span": (state_start, stop_idx),
-                            "meta": new_node.get_meta()
-                        }
-                    live_states[i] = (new_node, state_start, state_term + " " + term)
         # raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
