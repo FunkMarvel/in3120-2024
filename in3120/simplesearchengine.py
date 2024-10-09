@@ -2,8 +2,10 @@
 # pylint: disable=line-too-long
 # pylint: disable=too-few-public-methods
 # pylint: disable=too-many-locals
-
-from collections import Counter
+import collections
+from cgitb import small
+from getpass import fallback_getpass
+from heapq import heappush, heappop
 from typing import Iterator, Dict, Any
 from .sieve import Sieve
 from .ranker import Ranker
@@ -25,7 +27,7 @@ class SimpleSearchEngine:
     or something in between.
 
     The evaluator uses the client-supplied ratio T = N/M as a parameter as specified by the client on a
-    per query basis. For example, for the query 'john paul george ringo' we have M = 4 and a specified
+    per-query basis. For example, for the query 'john paul george ringo' we have M = 4 and a specified
     threshold of T = 0.7 would imply that at least 3 of the 4 query terms have to be present in a matching
     document.
     """
@@ -46,4 +48,48 @@ class SimpleSearchEngine:
         N is inferred from the query via the "match_threshold" (float) option, and the maximum number of documents
         to return to the client is controlled via the "hit_count" (int) option.
         """
-        raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
+        term_counter = collections.Counter(self.__inverted_index.get_terms(query))
+        m = len(term_counter)
+        t = options.setdefault("match_threshold", 0)
+        n = min(1, max(m, int(t * m)))
+        ranking_sieve = Sieve(options.setdefault("hit_count", 1))
+
+        posting_lists = {}
+        smallest_id = -1
+        for term in term_counter.keys():
+            term_iter = self.__inverted_index.get_postings_iterator(term)
+            first_posting = next(term_iter, None)
+
+            if first_posting is not None:
+                smallest_id = first_posting.document_id
+                posting_lists[term] = (first_posting, term_iter)
+
+        postings_left = True
+
+        while postings_left:
+            postings_left = False
+            smallest_id = int(1e64)
+            for (term, (posting, _)) in posting_lists.items():
+                if posting is not None and posting.document_id < smallest_id:
+                    smallest_id = posting.document_id
+
+            if smallest_id < 0:
+                break
+
+            ranker.reset(smallest_id)
+            hit_count = 0
+            for (term, (posting, iterator)) in posting_lists.items():
+                if posting is not None and posting.document_id == smallest_id:
+                    hit_count +=1
+                    ranker.update(term, term_counter[term], posting)
+                    posting_lists[term] = (next(iterator, None), iterator)
+                    postings_left = True
+
+            if hit_count >= n:
+                score = ranker.evaluate()
+                ranking_sieve.sift(score, smallest_id)
+
+        winners = ranking_sieve.winners()
+        for (score, doc_id) in winners:
+            yield {"score": score, "document": self.__corpus.get_document(doc_id)}
+        # raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
