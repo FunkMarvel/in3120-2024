@@ -8,15 +8,42 @@ class PostingsMerger:
     """
     Utility class for merging posting lists.
 
+    Note that the result of merging posting lists is itself a posting list.
+    Hence the merging methods can be combined to compute the result of more
+    complex Boolean operations over posting lists.
+
+    See https://nlp.stanford.edu/IR-book/pdf/01bool.pdf for further background.
+
     It is currently left unspecified what to do with the term frequency field
     in the returned postings when document identifiers overlap. Different
     approaches are possible, e.g., an arbitrary one of the two postings could
     be returned, or the posting having the smallest/largest term frequency, or
     a new one that produces an averaged value, or something else.
 
-    Note that the result of merging posting lists is itself a posting list.
-    Hence the merging methods can be combined to compute the result of more
-    complex Boolean operations over posting lists.
+    In Boolean retrieval and for determining if a document is a match/non-match
+    for a possibly complex Boolean query expression, the term frequency field is
+    irrelevant. But in a ranked retrieval setting we could imagine a scheme that
+    generates a ranking signal (one of several) that acts as a feature in a
+    relevance model. For example, we could imagine that each posting held a normalized
+    term frequency value instead of (or in addition to) the raw term frequency value,
+    and then interpret this as a fuzzy set membership function μ(t, d) to be used
+    in a simple fuzzy logic scheme. For a possibly complex Boolean query expression
+    q we could then compute μ(q, d) while merging, and let this be used as a ranking
+    signal:
+
+        TF(t, d)          = p.term_frequency if p.document_id == d else 0
+        μ(t, d)           = TF(t, d) / max(TF(t₂, d) for t₂ in d), for term t
+        μ(AND(e₁, e₂), d) = min(μ(e₁, d), μ(e₂, d)), for expressions e₁, e₂
+        μ(OR(e₁, e₂), d)  = max(μ(e₁, d), μ(e₂, d)), for expressions e₁, e₂
+        μ(NOT(e), d)      = 1 - μ(e, d), for expression e
+
+    Other options are possible, this just being an illustrated example idea. The
+    final relevance score that we use to rank by is then some scoring function
+    net-score(q, d) = f(μ(q, d), ...) over the documents that match the Boolean query
+    expression. Typically, the function f is machine-learnt. Unless already baked
+    into μ(t, d), the "..." features would include factors like inverse document
+    frequency weighting, static quality scores g(d), and much more. For further
+    reading, see https://nlp.stanford.edu/IR-book/pdf/07system.pdf.
     """
 
     @staticmethod
@@ -31,25 +58,25 @@ class PostingsMerger:
         only if the document referenced by the posting appears in both
         D(A) and D(B).
 
-        The posting lists are assumed sorted in increasing order according
+        All posting lists are assumed sorted in increasing order according
         to the document identifiers.
         """
-        posting1 = next(iter1, None)  # don't know if this counts as temporary data structures,
-        posting2 = next(iter2, None)  # but didn't figure out how to do the selective iteration
-                                      # without the posting1 and posting2 temp references.
+        # Start at the head.
+        current1 = next(iter1, None)
+        current2 = next(iter2, None)
 
-        # would appreciate some feedback on writing proper/more pythonic code,
-        # as my background is C++ and C#.
-        while posting1 is not None and posting2 is not None:
-            if posting1.document_id == posting2.document_id:
-                yield Posting(posting1.document_id, min(posting1.term_frequency, posting2.term_frequency))
-                posting1 = next(iter1, None)
-                posting2 = next(iter2, None)
-            elif posting1.document_id < posting2.document_id:
-                posting1 = next(iter1, None)
+        # We can abort as soon as we exhaust one of the posting lists.
+        while current1 and current2:
+
+            # Increment the smallest one. Yield if we have a match.
+            if current1.document_id == current2.document_id:
+                yield current1
+                current1 = next(iter1, None)
+                current2 = next(iter2, None)
+            elif current1.document_id < current2.document_id:
+                current1 = next(iter1, None)
             else:
-                posting2 = next(iter2, None)
-
+                current2 = next(iter2, None)
 
     @staticmethod
     def union(iter1: Iterator[Posting], iter2: Iterator[Posting]) -> Iterator[Posting]:
@@ -63,27 +90,33 @@ class PostingsMerger:
         only if the document referenced by the posting appears in either
         D(A) or D(B).
 
-        The posting lists are assumed sorted in increasing order according
+        All posting lists are assumed sorted in increasing order according
         to the document identifiers.
         """
-        posting1 = next(iter1, None)
-        posting2 = next(iter2, None)
+        # Start at the head.
+        current1 = next(iter1, None)
+        current2 = next(iter2, None)
 
-        while posting1 is not None or posting2 is not None:
-            if posting2 is None or (posting1 is not None and posting1.document_id < posting2.document_id):
-                yield posting1
-                posting1 = next(iter1, None)
-            elif posting1 is not None and posting1.document_id == posting2.document_id:
-                yield Posting(posting1.document_id, max(posting1.term_frequency, posting2.term_frequency))
-                posting1 = next(iter1, None)
-                posting2 = next(iter2, None)
+        # First handle the case where neither posting list is exhausted.
+        while current1 and current2:
+
+            # Yield the smallest one.
+            if current1.document_id == current2.document_id:
+                yield current1
+                current1 = next(iter1, None)
+                current2 = next(iter2, None)
+            elif current1.document_id < current2.document_id:
+                yield current1
+                current1 = next(iter1, None)
             else:
-                yield posting2
-                posting2 = next(iter2, None)
+                yield current2
+                current2 = next(iter2, None)
 
-
-
-        # raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
+        # We have exhausted at least one of the lists. Yield the remaining tail, if any.
+        current, tail = (current1, iter1) if current1 else (current2, iter2)
+        if current:
+            yield current
+            yield from tail
 
     @staticmethod
     def difference(iter1: Iterator[Posting], iter2: Iterator[Posting]) -> Iterator[Posting]:
@@ -97,32 +130,25 @@ class PostingsMerger:
         only if the document referenced by the posting appears in D(A)
         but not in D(B).
 
-        The posting lists are assumed sorted in increasing order according
+        All posting lists are assumed sorted in increasing order according
         to the document identifiers.
         """
-        posting1 = next(iter1, None)
-        posting2 = next(iter2, None)
+        # Start at the head.
+        current1 = next(iter1, None)
+        current2 = next(iter2, None)
 
-        while posting1 is not None:
-            if posting2 is None or posting1.document_id < posting2.document_id:
-                yield posting1
-                posting1 = next(iter1, None)
-            elif posting1.document_id == posting2.document_id:
-                posting1 = next(iter1, None)
-                posting2 = next(iter2, None)
+        # First handle the case where neither posting list is exhausted.
+        while current1 and current2:
+            if current1.document_id < current2.document_id:
+                yield current1
+                current1 = next(iter1, None)
+            elif current1.document_id > current2.document_id:
+                current2 = next(iter2, None)
             else:
-                posting2 = next(iter2, None)
+                current1 = next(iter1, None)
+                current2 = next(iter2, None)
 
-# example run of repl.py a-2:
-r"""
-(venv) PS E:\Documents\in3120-2024\tests> python.exe .\repl.py a-2
-Building inverted index from English name corpus...
-Enter a complex Boolean query expression and find matching documents.
-Lookup options are {'optimize': True}.
-Ctrl-C to exit.
-query>AND(Alexander, OR(Davis, Pratt))
-[{'document': {'document_id': 1968, 'fields': {'body': 'Alexander Davis'}}},
- {'document': {'document_id': 2667, 'fields': {'body': 'Alexander Pratt'}}}]
-Evaluation took 0.00024259999918285757 seconds.
-query>
-"""
+        # Yield the remaining elements in the first list, if any.
+        if current1:
+            yield current1
+            yield from iter1
