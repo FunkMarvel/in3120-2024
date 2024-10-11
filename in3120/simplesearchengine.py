@@ -61,12 +61,12 @@ class SimpleSearchEngine:
 
         posting_list_heap = []
         for term in terms:
-            # get posting lists for terms that occur in corpus:
+            # get posting lists for terms that occur in query:
             posting_iter = self.__inverted_index.get_postings_iterator(term)
             first_posting = next(posting_iter, None)
 
             if first_posting is not None:
-                # decided to use min-heap for document-at-a-time traversal
+                # if the term occurs in corpus, push posting lists onto min-heap by doc id
                 heappush(posting_list_heap, (first_posting.document_id, (term, first_posting, posting_iter)))
 
         while len(posting_list_heap) > 0:
