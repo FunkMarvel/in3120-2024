@@ -98,7 +98,7 @@ class SimpleSearchEngine:
 
                 posting = posting_list_heap[0][1][1]  # peek next smallest id and posting on heap
 
-            if term_occurrences >= n:  # sift all documents with at least n occurrences of terms
+            if term_occurrences >= n:  # sift documents with at least n occurrences of terms
                 score = ranker.evaluate()
                 ranking_sieve.sift(score, smallest_id)
 
