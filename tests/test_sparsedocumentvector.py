@@ -53,9 +53,18 @@ class TestSparseDocumentVector(unittest.TestCase):
         vector = in3120.SparseDocumentVector(values)
         factor = 0.210470
         vector.scale(factor)
-        self.assertAlmostEqual(math.sqrt(sum((factor * weight)**2 for _, weight in values.items())), vector.get_length(), 6)
-        for term, weight in vector:
-            self.assertAlmostEqual(factor * values[term], weight, 6)
+        self.assertAlmostEqual(factor * math.sqrt(0.5**2 + 0.8**2 + 1.0**2 + 2.0**2), vector.get_length(), 6)
+        self.assertAlmostEqual(factor * 0.5, vector["c"], 6)
+        self.assertAlmostEqual(factor * 0.8, vector["a"], 6)
+        self.assertAlmostEqual(factor * 1.0, vector["x"], 6)
+        self.assertAlmostEqual(factor * 2.0, vector["y"], 6)
+
+    def test_scale_zero(self):
+        values = {"c": 0.5, "a": 0.8, "x": 1.0, "y": 2.0}
+        vector = in3120.SparseDocumentVector(values)
+        vector.scale(0.0)
+        self.assertEqual(0, len(vector))
+        self.assertEqual(0, vector.get_length())
 
     def test_cosine(self):
         self.assertAlmostEqual(0.0, self._empty.cosine(self._vector1), 6)
@@ -81,13 +90,13 @@ class TestSparseDocumentVector(unittest.TestCase):
         self.assertAlmostEqual(0.0, vector.get_length(), 6)
 
     def test_top(self):
-        self.assertListEqual(self._vector1.top(0), [])
-        self.assertListEqual(self._vector1.top(1), [("c", 1.2)])
-        self.assertListEqual(self._vector1.top(2), [("c", 1.2), ("b", 0.9)])
-        self.assertListEqual(self._vector1.top(3), [("c", 1.2), ("b", 0.9), ("a", 0.4)])
-        self.assertListEqual(self._vector1.top(4), [("c", 1.2), ("b", 0.9), ("a", 0.4)])
+        self.assertListEqual(list(self._vector1.top(0)), [])
+        self.assertListEqual(list(self._vector1.top(1)), [("c", 1.2)])
+        self.assertListEqual(list(self._vector1.top(2)), [("c", 1.2), ("b", 0.9)])
+        self.assertListEqual(list(self._vector1.top(3)), [("c", 1.2), ("b", 0.9), ("a", 0.4)])
+        self.assertListEqual(list(self._vector1.top(4)), [("c", 1.2), ("b", 0.9), ("a", 0.4)])
         with self.assertRaises(AssertionError):
-            self._vector1.top(-1)
+            list(self._vector1.top(-1))
 
     def test_truncate(self):
         vector = in3120.SparseDocumentVector({"c": 0.5, "a": 0.8, "x": 1.0, "y": 2.0})
@@ -95,7 +104,7 @@ class TestSparseDocumentVector(unittest.TestCase):
         vector.truncate(100)
         self.assertEqual(length, vector.get_length())
         vector.truncate(2)
-        self.assertListEqual(vector.top(100), [("y", 2.0), ("x", 1.0)])
+        self.assertListEqual(list(vector.top(100)), [("y", 2.0), ("x", 1.0)])
         self.assertTrue(length > vector.get_length())
         with self.assertRaises(AssertionError):
             vector.truncate(-1)
@@ -108,11 +117,17 @@ class TestSparseDocumentVector(unittest.TestCase):
             "c": (1.2 + 0.5 + 0.0) / 3,
             "x": (0.0 + 1.0 + 0.0) / 3,
         }
-        pairs = centroid.top(100)
+        pairs = list(centroid.top(100))
         self.assertEqual(4, len(pairs))
         for term, weight in pairs:
             self.assertTrue(term in expected)
             self.assertAlmostEqual(weight, expected[term], 6)
+
+    def test_only_non_zero_elements_are_kept(self):
+        vector = in3120.SparseDocumentVector({"a": 1.5, "b": 0.0})
+        self.assertEqual(1, len(vector))
+        vector.scale(0)
+        self.assertEqual(0, len(vector))
 
 
 if __name__ == '__main__':

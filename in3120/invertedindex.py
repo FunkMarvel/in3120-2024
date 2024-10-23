@@ -6,9 +6,6 @@
 import itertools
 from abc import ABC, abstractmethod
 from collections import Counter
-from operator import contains
-
-from lib2to3.btm_utils import tokens
 from typing import Iterable, Iterator, List, Tuple, Dict
 from .dictionary import InMemoryDictionary
 from .normalizer import Normalizer
@@ -114,30 +111,19 @@ class InMemoryInvertedIndex(InvertedIndex):
         further details.
         """
         for document in self._corpus:
-            for field in fields:
-
-                terms = self.get_terms(document.get_field(field, None))
-                if terms is None:
-                    continue
-
-                for term in terms:
-                    term_id = self._dictionary.add_if_absent(term)
-                    if len(self._posting_lists) <= term_id:
-                        self._posting_lists.append(InMemoryPostingList())
-
-                    posting = next((posting for posting in self._posting_lists[term_id] if posting.document_id == document.document_id), None)
-                    if posting is None:
-                        posting = Posting(document.document_id, 1)
-                        self._posting_lists[term_id].append_posting(posting)
-                        continue
-
-                    posting.term_frequency += 1
+            all_terms = itertools.chain.from_iterable(self.get_terms(document.get_field(f, "")) for f in fields)
+            term_frequencies = Counter(all_terms)
+            for term, term_frequency in term_frequencies.items():
+                term_id = self._add_to_dictionary(term)
+                self._append_to_posting_list(term_id, document.document_id, term_frequency, compressed)
+        self._finalize_index()
 
     def _add_to_dictionary(self, term: str) -> int:
         """
         Adds the given term to the dictionary, if it's not already present. If it's already present,
         the dictionary stays unchanged. Returns the term identifier assigned to the term.
         """
+        # Assign the term an identifier, if needed. First come, first serve.
         return self._dictionary.add_if_absent(term)
 
     def _append_to_posting_list(self, term_id: int, document_id: int, term_frequency: int, compressed: bool) -> None:
@@ -146,8 +132,15 @@ class InMemoryInvertedIndex(InvertedIndex):
         must be kept sorted so that we can efficiently traverse and
         merge them when querying the inverted index.
         """
-        self._posting_lists.append(InMemoryPostingList())
-        self._posting_lists[term_id].append_posting(Posting(document_id, term_frequency))
+        # Locate the posting list for this term. Create it, if needed.
+        assert term_id >= 0
+        assert document_id >= 0
+        assert term_frequency > 0
+        if term_id >= len(self._posting_lists):
+            assert term_id == len(self._posting_lists)
+            self._posting_lists.append(CompressedInMemoryPostingList() if compressed else InMemoryPostingList())
+        posting_list = self._posting_lists[term_id]
+        posting_list.append_posting(Posting(document_id, term_frequency))
 
     def _finalize_index(self):
         """
@@ -155,8 +148,10 @@ class InMemoryInvertedIndex(InvertedIndex):
         implementations that need it with the chance to tie up any loose ends,
         if needed.
         """
-        for postings in self._posting_lists:
-            postings.finalize_postings()
+        # For example, if we do compression in chunks or do bit-level compression then there
+        # might be outstanding data to be processed.
+        for posting_list in self._posting_lists:
+            posting_list.finalize_postings()
 
     def get_terms(self, buffer: str) -> Iterator[str]:
         # In a serious large-scale application there could be field-specific tokenizers.
@@ -170,18 +165,17 @@ class InMemoryInvertedIndex(InvertedIndex):
         return (s for s, _ in self._dictionary)
 
     def get_postings_iterator(self, term: str) -> Iterator[Posting]:
+        # Assume that everything fits in memory. This would not be the case in a serious
+        # large-scale application, even with compression.
         term_id = self._dictionary.get_term_id(term)
-        if term_id is not None:
-            return self._posting_lists[term_id].get_iterator()
-        else:
-            return iter([])
+        return iter([]) if term_id is None else iter(self._posting_lists[term_id])
 
     def get_document_frequency(self, term: str) -> int:
+        # In a serious large-scale application we'd store this number explicitly, e.g., as part of the dictionary.
+        # That way, we can look up the document frequency without having to access the posting lists
+        # themselves. Imagine if the posting lists don't even reside in memory!
         term_id = self._dictionary.get_term_id(term)
-        if term_id is not None:
-            return len(self._posting_lists[term_id])
-        else:
-            return 0
+        return 0 if term_id is None else self._posting_lists[term_id].get_length()
 
 
 class DummyInMemoryInvertedIndex(InMemoryInvertedIndex):
