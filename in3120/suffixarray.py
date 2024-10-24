@@ -1,15 +1,11 @@
 # pylint: disable=missing-module-docstring
 # pylint: disable=line-too-long
 
-import sys
-from bisect import bisect_left, bisect
+from bisect import bisect_left
 from itertools import takewhile
-from typing import Any, Dict, Iterator, Iterable, Tuple, List
+from typing import Dict, Iterator, Iterable, Tuple, List
 from collections import Counter
-
-from pygments.lexer import default
-from spacy.lang.fi.tokenizer_exceptions import suffix
-
+from .document import Document
 from .corpus import Corpus
 from .normalizer import Normalizer
 from .tokenizer import Tokenizer
@@ -19,6 +15,7 @@ class SuffixArray:
     """
     A simple suffix array implementation. Allows us to conduct efficient substring searches.
     The prefix of a suffix is an infix!
+
     In a serious application we'd make use of least common prefixes (LCPs), pay more attention
     to memory usage, and add more lookup/evaluation features.
     """
@@ -31,59 +28,40 @@ class SuffixArray:
         self.__suffixes: List[Tuple[int, int]] = []  # The sorted (<haystack index>, <start offset>) pairs.
         self.__build_suffix_array(fields)  # Construct the haystack and the suffix array itself.
 
-    def __get_suffix_string(self, suffix_tuple):
-        haystack_idx = suffix_tuple[0]
-        offset = suffix_tuple[1]
-        return self.__haystack[haystack_idx][1][offset:]
-
     def __build_suffix_array(self, fields: Iterable[str]) -> None:
         """
         Builds a simple suffix array from the set of named fields in the document collection.
         The suffix array allows us to search across all named fields in one go.
         """
-        for document in self.__corpus:
-            buffer = ""
-            for field in fields:
-                text = document.get_field(field, None)
-                if text is None:
-                    continue
+        # We allow searching across multiple document fields simultaneously, so join the named fields
+        # to produce the haystack that we'll search for needles in. Avoid cross-field matches.
+        self.__haystack = [(d.document_id, " \0 ".join(self.__normalize(d.get_field(f, "")) for f in fields)) for d in self.__corpus]
 
-                buffer += " " + text
-            self.__haystack.append((document.document_id, self.__normalize(buffer)))
-
-        for haystack_idx, (_, text) in enumerate(self.__haystack):
-            for token_start_idx, _ in self.__tokenizer.spans(text):
-               self.__suffixes.append((haystack_idx, token_start_idx))
-
-        self.__suffixes.sort(key=self.__get_suffix_string)
-
-        #raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
+        # We don't actually store all suffixes, instead we store (index, offset) pairs which allows us
+        # to generate the suffixes if/when we need them: The index identifies the document, and the
+        # offset identifies where in the document the substring starts. A naive suffix array generation
+        # is fine for now.
+        self.__suffixes = [(index, begin) for index, (_, buffer) in enumerate(self.__haystack) for begin, _ in self.__tokenizer.spans(buffer)]
+        self.__suffixes.sort(key=self.__get_suffix)
 
     def __normalize(self, buffer: str) -> str:
         """
         Produces a normalized version of the given string. Both queries and documents need to be
         identically processed for lookups to succeed.
         """
+        # Tokenize and join to be robust to nuances in whitespace and punctuation.
         tokens = self.__tokenizer.tokens(self.__normalizer.canonicalize(buffer))
-        terms = ((self.__normalizer.normalize(t), (start_idx, stop_idx)) for t, (start_idx, stop_idx) in tokens)
-        new_text = self.__tokenizer.join(terms)
-        return new_text
-        #raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
+        tokens = ((self.__normalizer.normalize(t), _) for t, _ in tokens)
+        return self.__tokenizer.join(tokens)
 
-    def __binary_search(self, needle: str) -> int:
+    def __get_suffix(self, pair: Tuple[int, int]) -> str:
         """
-        Does a binary search for a given normalized query (the needle) in the suffix array (the haystack).
-        Returns the position in the suffix array where the normalized query is either found, or, if not found,
-        should have been inserted.
-
-        Kind of silly to roll our own binary search instead of using the bisect module, but seems needed
-        prior to Python 3.10 due to how we represent the suffixes via (index, offset) tuples. Version 3.10
-        added support for specifying a key.
+        Produces the suffix/substring from the normalized document buffer for the given (index, offset) pair.
         """
-        return bisect_left(self.__suffixes, needle, key=self.__get_suffix_string)
-        #raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
+        index, offset = pair
+        return self.__haystack[index][1][offset:]  # Slicing implies copying. This should be possible to avoid.
 
-    def evaluate(self, query: str, options: dict) -> Iterator[Dict[str, Any]]:
+    def evaluate(self, query: str, options: dict) -> Iterator[Dict[str, int | Document]]:
         """
         Evaluates the given query, doing a "phrase prefix search".  E.g., for a supplied query phrase like
         "to the be", we return documents that contain phrases like "to the bearnaise", "to the best",
@@ -99,80 +77,34 @@ class SuffixArray:
         The results yielded back to the client are dictionaries having the keys "score" (int) and
         "document" (Document).
         """
-        normalized_query = self.__normalize(query)
-
-        first_idx = self.__binary_search(normalized_query)
-        results: Dict[int, int] = {}  # keeping track of scores for each document.
-
-        if len(normalized_query) < 1 or first_idx < 0 or first_idx >= len(self.__suffixes):
+        # Search for the needle in the haystack, using binary search. Define that the empty query matches
+        # nothing, not everything.
+        needle = self.__normalize(query)
+        if not needle:
             return
+        where_start = bisect_left(self.__suffixes, needle, key=self.__get_suffix)
 
-        for i in range(first_idx, len(self.__suffixes)):
-            haystack_idx = self.__suffixes[i][0]
-            offset = self.__suffixes[i][1]
-            document_id = self.__haystack[haystack_idx][0]
+        # Helper predicate. Checks if the identified suffix starts with the needle. Since slicing implies copying,
+        # cap the length of the slice to the length of the needle. The starts-with relation then becomes the same
+        # as equality, which is quick to check.
+        def _is_match(i: int) -> bool:
+            j, offset = self.__suffixes[i]
+            return self.__haystack[j][1][offset:(offset + len(needle))] == needle
 
-            if len(self.__haystack[haystack_idx][1][offset:]) < len(normalized_query):
-                continue
+        # Suffixes sharing a prefix are consecutive in the suffix array. Scan ahead from the located index until
+        # we no longer get a match. We expect a low number of matches for typical queries, and we process all the
+        # matches below anyway. If we just wanted to count the number of matches without processing them, we
+        # could instead of a linear scan do another binary search to locate where the range ends.
+        matches = takewhile(_is_match, range(where_start, len(self.__suffixes)))
 
-            if normalized_query == self.__haystack[haystack_idx][1][offset:][:len(normalized_query)]:
-                score = results.setdefault(document_id, 0)  # retrieve existing score, or set zero if first hit
-                results[document_id] = score + 1
-            else:
-                break
-
-        # I know sorting all matches is inefficient, but I ran out of time for refactoring it to use sieve
-        matches = list(results.items())
-        matches.sort(key=lambda x: x[1], reverse=True)
-
-        hit_count = options.setdefault("hit_count", None)
-        if hit_count is None:
-            return
-
-        for i, (document_id, score) in enumerate(matches):
-            if i+1 > hit_count:
-                return
-
-            yield {"document": self.__corpus.get_document(document_id), "score": score}
-
-        #raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
-
-# example run: (the fail is from stringfinder.py)
-r"""
-(venv) PS E:\Documents\in3120-2024\tests> python.exe .\assignments.py b-1
-test_canonicalized_corpus (test_suffixarray.TestSuffixArray.test_canonicalized_corpus) ... ok
-test_cran_corpus (test_suffixarray.TestSuffixArray.test_cran_corpus) ... ok
-test_memory_usage (test_suffixarray.TestSuffixArray.test_memory_usage) ... ok
-test_multiple_fields (test_suffixarray.TestSuffixArray.test_multiple_fields) ... ok
-test_uses_yield (test_suffixarray.TestSuffixArray.test_uses_yield) ... ok
-test_add_is_idempotent (test_trie.TestTrie.test_add_is_idempotent) ... ok
-test_add_is_idempotent_unless_meta_data_differs (test_trie.TestTrie.test_add_is_idempotent_unless_meta_data_differs) ... ok
-test_child (test_trie.TestTrie.test_child) ... ok
-test_consume_and_final (test_trie.TestTrie.test_consume_and_final) ... ok
-test_containment (test_trie.TestTrie.test_containment) ... ok
-test_dump_strings (test_trie.TestTrie.test_dump_strings) ... ok
-test_transitions (test_trie.TestTrie.test_transitions) ... ok
-test_with_meta_data (test_trie.TestTrie.test_with_meta_data) ... ok
-test_mesh_terms_in_cran_corpus (test_stringfinder.TestStringFinder.test_mesh_terms_in_cran_corpus) ... ok
-test_relative_insensitivity_to_dictionary_size (test_stringfinder.TestStringFinder.test_relative_insensitivity_to_dictionary_size) ... 1.4522292816520965
-FAIL
-test_scan_matches_and_spans (test_stringfinder.TestStringFinder.test_scan_matches_and_spans) ... ok
-test_scan_matches_and_surface_forms_only (test_stringfinder.TestStringFinder.test_scan_matches_and_surface_forms_only) ... ok
-test_uses_yield (test_stringfinder.TestStringFinder.test_uses_yield) ... ok
-test_with_phonetic_normalizer_and_meta (test_stringfinder.TestStringFinder.test_with_phonetic_normalizer_and_meta) ... ok
-test_with_unigram_tokenizer_for_finding_arbitrary_substrings (test_stringfinder.TestStringFinder.test_with_unigram_tokenizer_for_finding_arbitrary_substrings) ... ok
-
-======================================================================
-FAIL: test_relative_insensitivity_to_dictionary_size (test_stringfinder.TestStringFinder.test_relative_insensitivity_to_dictionary_size)
-----------------------------------------------------------------------
-Traceback (most recent call last):
-  File "E:\Documents\in3120-2024\tests\test_stringfinder.py", line 96, in test_relative_insensitivity_to_dictionary_size
-    self.assertLessEqual(ratio - slack, 1.0)
-AssertionError: 1.1022292816520967 not less than or equal to 1.0
-
-----------------------------------------------------------------------
-Ran 20 tests in 1.840s
-
-FAILED (failures=1)
-(venv) PS E:\Documents\in3120-2024\tests> 
-"""
+        # Deduplicate. A document in the haystack might contain multiple occurrences of the needle.
+        # Rank according to occurrence count, and emit in ranked order.
+        if matches:
+            debug = options.get("debug", False)
+            pairs = [self.__suffixes[i] for i in matches]
+            if debug:
+                for pair in pairs:
+                    print("*** MATCH", pair, self.__get_suffix(pair))
+            counter = Counter([i for i, _ in pairs])
+            for index, count in counter.most_common(max(1, min(100, options.get("hit_count", 10)))):
+                yield {"score": count, "document": self.__corpus[self.__haystack[index][0]]}

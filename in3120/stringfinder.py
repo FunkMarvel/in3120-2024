@@ -14,9 +14,9 @@ class StringFinder:
     that are also present in a given text buffer. I.e., in a sense computes the "intersection" or "overlap"
     between the dictionary and the text buffer.
 
-    Uses a trie-walk algorithm similar to the Aho-Corasick algorithm with some simplifications and some minor
-    NLP extensions. The running time of this algorithm is virtually independent of the size of the dictionary,
-    and linear in the length of the buffer we are searching in.
+    Uses a trie-walk algorithm similar to the Aho-Corasick algorithm with some simplifications (we ignore the
+    part about failure transitions) and some minor NLP extensions. The running time of this algorithm is virtually
+    independent of the size of the dictionary, and linear in the length of the buffer we are searching in.
 
     The tokenizer we use when scanning the input buffer is assumed to be the same as the one that was used
     when adding strings to the trie.
@@ -45,104 +45,52 @@ class StringFinder:
         In a serious application we'd add more lookup/evaluation features, e.g., support for prefix matching,
         support for leftmost-longest matching (instead of reporting all matches), and more.
         """
-
-        tokens = self.__tokenizer.tokens(self.__normalizer.canonicalize(buffer))
-        terms = ((self.__normalizer.normalize(t), (s_idx, e_idx)) for (t, (s_idx, e_idx)) in tokens)
-
-        # tried using the states array suggested by @aleksaoh in the mattermost chat
+        # The set of currently explored states. We represent a state as a triple consisting
+        # of (a) a node in the trie (that represents where in the trie we are after having
+        # consumed zero or more characters), (b) an index (that represents the position into
+        # the original buffer where the state was "born"), and (c) a string (that represents
+        # the symbols consumed so far to get to the current state.) Item (a) is what we advance
+        # along the way, item (b) is needed so that we know where we first started if/when a
+        # match is found, and item (c) is needed so that we can differentiate between the surface
+        # form of the match and the (possibly heavily normalized) base form of the match.
         live_states: List[Tuple[Trie, int, str]] = []
 
-        for term, (start_idx, stop_idx) in terms:
-            for i, (state_node, state_start, state_term) in enumerate(live_states):
-                live_states[i] = (state_node, -1, "")
+        # Where did the previous token end? Assume that tokens are produced sorted in left-to-right
+        # order.
+        previous_end = -1
 
-                # joining terms with tokenizer to capture correct delimiter.
-                state_stop = len(state_term) + state_start
-                combined_term = self.__tokenizer.join(iter([
-                    (state_term, (state_start, state_stop)), (term, (start_idx, stop_idx))
-                ]))
+        # Only consider matches that start on token boundaries.
+        for string, (begin, end) in self.__tokenizer.tokens(buffer):
 
-                # consuming from end of previous term in sequence to capture any whitespace
-                # that is in the Trie, but not in the normalized terms.
-                new_node = state_node.consume(combined_term[state_stop-state_start:])
-                if new_node is None:
-                    continue
+            # Mirror how the trie was built, ensuring we compare apples to apples.
+            # Canonicalize on a per token basis instead of doing the whole buffer upfront,
+            # to ensure that offsets are retained and the ranges we report back make
+            # sense to the client.
+            string = self.__normalizer.normalize(self.__normalizer.canonicalize(string))
 
-                if new_node.is_final():
-                    tokenized_buffer = self._tokenize_buffer(buffer, state_start, stop_idx)
-                    yield {
-                        "match": combined_term,
-                        "surface": tokenized_buffer,
-                        "span": (state_start, stop_idx),
-                        "meta": new_node.get_meta()
-                    }
-                live_states[i] = (new_node, state_start, combined_term)
+            # Is this token "connected to" the previous token, in the sense of the two being
+            # crammed together with nothing separating them? Some languages, e.g., Japanese or
+            # Chinese, don't use whitespace between tokens.
+            is_connected, previous_end = (previous_end > 0) and (begin == previous_end), end
 
-            # removing dead states from state list.
-            live_states = [t for t in live_states if t[1] >= 0]
+            # Inject a space for the currently live states, if needed. Prune away states that
+            # don't survive.
+            if not is_connected:
+                live_states = [(child, _, m + " ") for s, _, m in live_states if (child := s.consume(" "))]
 
-            # checking if current term can iterate from root.
-            node = self.__trie.consume(term)
-            if node is None:
-                continue
+            # Consider this token a potential start for a match.
+            live_states.append((self.__trie, begin, ""))
 
-            if node.is_final():
-                tokenized_buffer = self._tokenize_buffer(buffer, start_idx, stop_idx)
-                yield {
-                    "match": term,
-                    "surface": tokenized_buffer,
-                    "span": (start_idx, stop_idx),
-                    "meta": node.get_meta()
-                }
-            live_states.append((node, start_idx, term))
+            # Advance all currently live states with the current (normalized) token. Prune away
+            # states that don't survive.
+            live_states = [(child, _, m + string) for s, _, m in live_states if (child := s.consume(string))]
 
-    def _tokenize_buffer(self, buffer, start_idx, stop_idx):
-        tokens = self.__tokenizer.tokens(buffer[start_idx:stop_idx])
-        tokenized_buffer = self.__tokenizer.join(tokens)
-        return tokenized_buffer
-
-# BUG: I could not for the life of me get it to pass the relative_insensitivity_to_dictionary_size test.
-# I assume the ratio means my implementation runs roughly 10-15% slower than the max allowed slack,
-# but I can't find how to speed it up.
-# I used the guide described here: https://github.com/FunkMarvel/in3120-2024/blob/725f88d55d6cb9c4e6b15303428197bee34066c0/seminars/gruppe1/uke04/uke04.pdf
-# as reference, but I suspect my handling of live states is suboptimal. Since I have run out of time,
-# I hand in my attempt as is.
-
-# example run:
-r"""
-(venv) PS E:\Documents\in3120-2024\tests> python.exe .\assignments.py b-1
-test_canonicalized_corpus (test_suffixarray.TestSuffixArray.test_canonicalized_corpus) ... ok
-test_cran_corpus (test_suffixarray.TestSuffixArray.test_cran_corpus) ... ok
-test_memory_usage (test_suffixarray.TestSuffixArray.test_memory_usage) ... ok
-test_multiple_fields (test_suffixarray.TestSuffixArray.test_multiple_fields) ... ok
-test_uses_yield (test_suffixarray.TestSuffixArray.test_uses_yield) ... ok
-test_add_is_idempotent (test_trie.TestTrie.test_add_is_idempotent) ... ok
-test_add_is_idempotent_unless_meta_data_differs (test_trie.TestTrie.test_add_is_idempotent_unless_meta_data_differs) ... ok
-test_child (test_trie.TestTrie.test_child) ... ok
-test_consume_and_final (test_trie.TestTrie.test_consume_and_final) ... ok
-test_containment (test_trie.TestTrie.test_containment) ... ok
-test_dump_strings (test_trie.TestTrie.test_dump_strings) ... ok
-test_transitions (test_trie.TestTrie.test_transitions) ... ok
-test_with_meta_data (test_trie.TestTrie.test_with_meta_data) ... ok
-test_mesh_terms_in_cran_corpus (test_stringfinder.TestStringFinder.test_mesh_terms_in_cran_corpus) ... ok
-test_relative_insensitivity_to_dictionary_size (test_stringfinder.TestStringFinder.test_relative_insensitivity_to_dictionary_size) ... FAIL
-test_scan_matches_and_spans (test_stringfinder.TestStringFinder.test_scan_matches_and_spans) ... ok
-test_scan_matches_and_surface_forms_only (test_stringfinder.TestStringFinder.test_scan_matches_and_surface_forms_only) ... ok
-test_uses_yield (test_stringfinder.TestStringFinder.test_uses_yield) ... ok
-test_with_phonetic_normalizer_and_meta (test_stringfinder.TestStringFinder.test_with_phonetic_normalizer_and_meta) ... ok
-test_with_unigram_tokenizer_for_finding_arbitrary_substrings (test_stringfinder.TestStringFinder.test_with_unigram_tokenizer_for_finding_arbitrary_substrings) ... ok
-
-======================================================================
-FAIL: test_relative_insensitivity_to_dictionary_size (test_stringfinder.TestStringFinder.test_relative_insensitivity_to_dictionary_size)
-----------------------------------------------------------------------
-Traceback (most recent call last):
-  File "E:\Documents\in3120-2024\tests\test_stringfinder.py", line 95, in test_relative_insensitivity_to_dictionary_size
-    self.assertLessEqual(ratio - slack, 1.0)
-AssertionError: 1.1029411934646065 not less than or equal to 1.0
-
-----------------------------------------------------------------------
-Ran 20 tests in 1.822s
-
-FAILED (failures=1)
-(venv) PS E:\Documents\in3120-2024\tests> 
-"""
+            # Report matches, if any, that end on the token we just consumed. Use the
+            # tokenizer to possibly space-normalize the surface form we emit. If the client
+            # requires the exact surface form and its location in the input buffer, they can
+            # do that using the returned span.
+            for s, b, m in filter(lambda triple: triple[0].is_final(), live_states):
+                yield {"match": m,
+                       "meta": s.get_meta(),
+                       "surface": self.__tokenizer.join(self.__tokenizer.tokens(buffer[b:end])),
+                       "span": (b, end)}
