@@ -37,12 +37,15 @@ class BetterRanker(Ranker):
         self._document_id = document_id
 
     def update(self, term: str, multiplicity: int, posting: Posting) -> None:
-        document = self._corpus.get_document(self._document_id)
-        static_score = document.get_field(self._static_score_field_name, self._static_score_default_value)
-        tf = multiplicity * posting.term_frequency
-        
+        self._static_score_weight = self._corpus.get_document(self._document_id).get_field(
+            self._static_score_field_name, self._static_score_default_value)
 
-        self._score += self._dynamic_score_weight * multiplicity * posting.term_frequency + self._static_score_weight * static_score
+        num_docs_with_term = len(list(self._inverted_index.get_postings_iterator(term)))
+
+        tf = 1 + math.log(posting.term_frequency)
+        idf = math.log(self._corpus.size() / num_docs_with_term)
+
+        self._score += tf*idf
 
     def evaluate(self) -> float:
-        return self._score
+        return self._score + self._static_score_weight
