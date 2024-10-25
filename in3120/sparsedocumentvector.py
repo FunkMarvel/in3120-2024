@@ -5,11 +5,6 @@ from __future__ import annotations
 
 import math
 from typing import Iterable, Iterator, Dict, Tuple, Optional
-from math import sqrt
-
-from numpy.matlib import empty
-from spacy.attrs import value
-
 from .sieve import Sieve
 
 class SparseDocumentVector:
@@ -173,3 +168,67 @@ class SparseDocumentVector:
         centroid_vec = SparseDocumentVector(c_o_m_vec)
         centroid_vec.scale(1/num_vecs)  # rescale by inverse number of vectors
         return centroid_vec
+
+# example run of assignments.py d-1:
+r"""
+(venv) PS E:\Documents\in3120-2024\tests> python .\assignments.py d-1
+test_document_id_mismatch (test_betterranker.TestBetterRanker.test_document_id_mismatch) ... ok
+test_inverse_document_frequency (test_betterranker.TestBetterRanker.test_inverse_document_frequency) ... ok
+test_static_quality_score (test_betterranker.TestBetterRanker.test_static_quality_score) ... ok
+test_term_frequency (test_betterranker.TestBetterRanker.test_term_frequency) ... ok
+test_shingled_mesh_corpus (test_shinglegenerator.TestShingleGenerator.test_shingled_mesh_corpus) ... ok
+test_spans (test_shinglegenerator.TestShingleGenerator.test_spans) ... ok
+test_strings (test_shinglegenerator.TestShingleGenerator.test_strings) ... ok
+test_tokens (test_shinglegenerator.TestShingleGenerator.test_tokens) ... ok
+test_uses_yield (test_shinglegenerator.TestShingleGenerator.test_uses_yield) ... ok
+test_spans (test_wordshinglegenerator.TestWordShingleGenerator.test_spans) ... ok
+test_spans_cover_surface_forms_but_strings_are_normalized (test_wordshinglegenerator.TestWordShingleGenerator.test_spans_cover_surface_forms_but_strings_are_normalized) ... ok
+test_strings (test_wordshinglegenerator.TestWordShingleGenerator.test_strings) ... ok
+test_tokens (test_wordshinglegenerator.TestWordShingleGenerator.test_tokens) ... ok
+test_uses_yield (test_wordshinglegenerator.TestWordShingleGenerator.test_uses_yield) ... ok
+test_centroid (test_sparsedocumentvector.TestSparseDocumentVector.test_centroid) ... ok
+test_cosine (test_sparsedocumentvector.TestSparseDocumentVector.test_cosine) ... ok
+test_dot_product (test_sparsedocumentvector.TestSparseDocumentVector.test_dot_product) ... ok
+test_dunderscore_contains (test_sparsedocumentvector.TestSparseDocumentVector.test_dunderscore_contains) ... ok
+test_dunderscore_getitem (test_sparsedocumentvector.TestSparseDocumentVector.test_dunderscore_getitem) ... ok
+test_dunderscore_len (test_sparsedocumentvector.TestSparseDocumentVector.test_dunderscore_len) ... ok
+test_dunderscore_setitem (test_sparsedocumentvector.TestSparseDocumentVector.test_dunderscore_setitem) ... ok
+test_length (test_sparsedocumentvector.TestSparseDocumentVector.test_length) ... ok
+test_normalize_empty (test_sparsedocumentvector.TestSparseDocumentVector.test_normalize_empty) ... ok
+test_normalize_nonempty (test_sparsedocumentvector.TestSparseDocumentVector.test_normalize_nonempty) ... ok
+test_only_non_zero_elements_are_kept (test_sparsedocumentvector.TestSparseDocumentVector.test_only_non_zero_elements_are_kept) ... ok
+test_scale (test_sparsedocumentvector.TestSparseDocumentVector.test_scale) ... ok
+test_scale_zero (test_sparsedocumentvector.TestSparseDocumentVector.test_scale_zero) ... ok
+test_top (test_sparsedocumentvector.TestSparseDocumentVector.test_top) ... ok
+test_truncate (test_sparsedocumentvector.TestSparseDocumentVector.test_truncate) ... ok
+
+----------------------------------------------------------------------
+Ran 29 tests in 0.811s
+
+OK
+"""
+
+# example run of repl.py d-1:
+r"""
+(venv) PS E:\Documents\in3120-2024\tests> python .\repl.py d-1       
+Indexing MeSH corpus...
+Enter a query and find matching documents.
+Lookup options are {'debug': False, 'hit_count': 5, 'match_threshold': 0.5}.
+Normalizer is SimpleNormalizer.
+Tokenizer is ShingleGenerator.
+Ranker is SimpleRanker.
+Ctrl-C to exit.
+query>OrGaNiK KeMmIsTrY
+[{'document': {'document_id': 16981, 'fields': {'body': 'organic chemistry processes', 'meta': '27'}},
+  'score': 8.0},
+ {'document': {'document_id': 16980, 'fields': {'body': 'organic chemistry phenomena', 'meta': '27'}},
+  'score': 8.0},
+ {'document': {'document_id': 4411, 'fields': {'body': 'chemistry, organic', 'meta': '18'}},
+  'score': 8.0},
+ {'document': {'document_id': 4410, 'fields': {'body': 'chemistry, inorganic', 'meta': '20'}},
+  'score': 8.0},
+ {'document': {'document_id': 4408, 'fields': {'body': 'chemistry, bioinorganic', 'meta': '23'}},
+  'score': 8.0}]
+Evaluation took 0.0023331000011239666 seconds.
+query>
+"""
