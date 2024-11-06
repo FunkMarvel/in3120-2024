@@ -2,8 +2,8 @@
 # pylint: disable=line-too-long
 # pylint: disable=too-few-public-methods
 # pylint: disable=too-many-locals
-import collections
-from heapq import heappush, heappop
+
+from collections import Counter
 from typing import Iterator, Dict, Any
 from .sieve import Sieve
 from .ranker import Ranker
@@ -25,8 +25,8 @@ class SimpleSearchEngine:
     or something in between.
 
     The evaluator uses the client-supplied ratio T = N/M as a parameter as specified by the client on a
-    per-query basis. For example, for the query 'john paul george ringo' we have M = 4 and a specified
-    threshold of T = 0.7 would imply that at least 3 of the 4 query terms have to be present in a matching
+    per query basis. For example, for the query 'john paul george ringo' we have M = 4 and a specified
+    threshold of T = 0.75 would imply that at least 3 of the 4 query terms have to be present in a matching
     document.
     """
 
@@ -46,99 +46,58 @@ class SimpleSearchEngine:
         N is inferred from the query via the "match_threshold" (float) option, and the maximum number of documents
         to return to the client is controlled via the "hit_count" (int) option.
         """
+        # Produce the query terms. We must use the same string processing here as we used when
+        # building up the inverted index. Some terms might be duplicated (e.g., as in the query
+        # "to be or not to be").
+        query_terms = self.__inverted_index.get_terms(query)
+        unique_query_terms = list(Counter(query_terms).items())
 
-        # find terms and multiplicity:
-        term_multiplicity = collections.Counter(self.__inverted_index.get_terms(query))
-        terms = list(term_multiplicity.keys())
-        terms.sort()  # ensure terms are accessed in lexicographical order for each document
+        # Get the posting lists for the unique query terms.
+        posting_lists = [self.__inverted_index[term] for (term, _) in unique_query_terms]
 
-        # get parameters for N-out-of-M retrieval:
-        m = len(term_multiplicity)
-        t = options.setdefault("match_threshold", 0.25)  # default threshold of 25% just in case
-        n = max(1, min(m, int(t * m)))
+        # We require that at least N of the M query terms are present in the document,
+        # for the document to be considered part of the result set. What should the minimum
+        # value of N be? (We could take multiplicity into account here, too, and not just uniqueness.)
+        match_threshold = max(0.0, min(1.0, options.get("match_threshold", 0.5)))
+        required_minimum = max(1, min(len(unique_query_terms), int(match_threshold * len(unique_query_terms))))
 
-        ranking_sieve = Sieve(options.setdefault("hit_count", 1))  # default hit count of 1 just in case
+        # When traversing the posting lists using document-at-a-time traversal, we need to keep track
+        # of where we are in each of the posting lists. Initially, all the cursors "point to" the first entry
+        # in each posting list. Keep track of which posting lists that remain to be fully traversed.
+        all_cursors = [next(p, None) for p in posting_lists]
+        remaining_cursor_ids = [i for i in range(len(all_cursors)) if all_cursors[i]]
 
-        posting_list_heap = []
-        for term in terms:
-            # get posting lists for terms that occur in query:
-            posting_iter = self.__inverted_index.get_postings_iterator(term)
-            first_posting = next(posting_iter, None)
+        # We're doing ranked retrieval. Assess relevance scores per document as we go along, as we're doing
+        # document-at-a-time traversal. Keep track of the K highest-scoring documents.
+        sieve = Sieve(max(1, min(100, options.get("hit_count", 10))))
 
-            if first_posting is not None:
-                # if the term occurs in corpus, push posting lists onto min-heap by doc id
-                heappush(posting_list_heap, (first_posting.document_id, (term, first_posting, posting_iter)))
+        # We're doing at least N-of-M matching. As we reach the end of the posting lists, we can abort when
+        # the number of non-exhausted lists drops below the required minimum N.
+        while len(remaining_cursor_ids) >= required_minimum:
 
-        while len(posting_list_heap) > 0:
-            # peek the smallest document_id and associated posting
-            smallest_id = posting_list_heap[0][0]
-            posting = posting_list_heap[0][1][1]
-            if posting is None:
-                continue
+            # The posting lists are sorted by the document identifiers in ascending order. Define the
+            # "frontier" as the subset of non-exhausted posting lists that mention the lowest document
+            # identifier. In a sense, if we imagine scanning the posting lists from left to right, the
+            # frontier is the subset that has the "leftmost" cursors.
+            document_id = min(all_cursors[i].document_id for i in remaining_cursor_ids)
+            frontier_cursor_ids = [i for i in remaining_cursor_ids if all_cursors[i].document_id == document_id]
 
-            ranker.reset(smallest_id)
-            term_occurrences = 0
+            # The number of elements on the "frontier" needs to be at least N. Otherwise, these documents
+            # don't contain enough of the query terms, and aren't part of the result set.
+            if len(frontier_cursor_ids) >= required_minimum:
+                ranker.reset(document_id)
+                for i in frontier_cursor_ids:
+                    ranker.update(unique_query_terms[i][0], unique_query_terms[i][1], all_cursors[i])
+                sieve.sift(ranker.evaluate(), document_id)
 
-            while posting.document_id == smallest_id:
-                posting_tuple = heappop(posting_list_heap)  # pop next posting for current doc
-                term = posting_tuple[1][0]
-                posting = posting_tuple[1][1]
-                posting_iter = posting_tuple[1][2]
+            # Move along the cursors on the frontier. The cursors not on the frontier remain where they
+            # are. We may or may not reach the end of some posting lists when we advance, so the set of
+            # remaining non-exhausted lists might shrink.
+            for i in frontier_cursor_ids:
+                all_cursors[i] = next(posting_lists[i], None)
+            remaining_cursor_ids = [i for i in range(len(all_cursors)) if all_cursors[i]]
 
-                # rank and count term occurrences in doc
-                ranker.update(term, term_multiplicity[term], posting)
-                term_occurrences += 1
-
-                posting = next(posting_iter, None)
-                if posting is not None:  # if posting list not exhausted, push next posting back on heap
-                    heappush(posting_list_heap, (posting.document_id, (term, posting, posting_iter)))
-
-                if len(posting_list_heap) <= 0:  # stop if no more postings in any list
-                    break
-
-                posting = posting_list_heap[0][1][1]  # peek next smallest id and posting on heap
-
-            if term_occurrences >= n:  # sift documents with at least n occurrences of terms
-                score = ranker.evaluate()
-                ranking_sieve.sift(score, smallest_id)
-
-        winners = ranking_sieve.winners()
-        for (score, doc_id) in winners:
-            yield {"score": score, "document": self.__corpus.get_document(doc_id)}
-
-# example run of assignments.py c-1:
-r"""
-(venv) PS E:\Documents\in3120-2024\tests> python.exe .\assignments.py c-1
-test_canonicalized_corpus (test_simplesearchengine.TestSimpleSearchEngine.test_canonicalized_corpus) ... ok
-test_document_at_a_time_traversal_mesh_corpus (test_simplesearchengine.TestSimpleSearchEngine.test_document_at_a_time_traversal_mesh_corpus) ... ok
-test_mesh_corpus (test_simplesearchengine.TestSimpleSearchEngine.test_mesh_corpus) ... ok
-test_synthetic_corpus (test_simplesearchengine.TestSimpleSearchEngine.test_synthetic_corpus) ... ok
-test_uses_yield (test_simplesearchengine.TestSimpleSearchEngine.test_uses_yield) ... ok
-
-----------------------------------------------------------------------
-Ran 5 tests in 0.528s
-
-OK
-"""
-
-# example run of repl.py c-1:
-r"""
-Indexing English news corpus...
-Enter a query and find matching documents.
-Lookup options are {'debug': False, 'hit_count': 5, 'match_threshold': 0.5}.
-Tokenizer is SimpleTokenizer.
-Ranker is SimpleRanker.
-Ctrl-C to exit.
-query>pollUtion waTer
-[{'document': {'document_id': 9699, 'fields': {'body': 'While there are not many people in the water during the winter months, there are plenty playing by the shore with their jeans rolled up just enough so that they can feel the cool water lap up against their feet.'}},
-  'score': 2.0},
- {'document': {'document_id': 7398, 'fields': {'body': 'The elevated salt levels in the water threatened some of the wildlife in the area that depend on a supply of fresh water.'}},
-  'score': 2.0},
- {'document': {'document_id': 5854, 'fields': {'body': 'Polluted air, on the other hand, contains water-soluble particles, leading to clouds with more, yet smaller, water droplets.'}},
-  'score': 2.0},
- {'document': {'document_id': 4515, 'fields': {'body': 'Kate Kralman, who shot the video of the MAX going through the water, was helping a friend load equipment nearby when she saw one light rail train go through the water.'}},
-  'score': 2.0},
- {'document': {'document_id': 354, 'fields': {'body': "A lot of people are disputing that climate change is a reality because they don't see everybody going under water."}},
-  'score': 1.0}]
-Evaluation took 0.0002347999998164596 seconds.
-"""
+        # Alert the client about the best-matching documents. Emit documents sorted according to their
+        # relevancy scores.
+        for score, document_id in sieve.winners():
+            yield {"score": score, "document": self.__corpus[document_id]}
