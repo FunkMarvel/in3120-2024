@@ -6,10 +6,10 @@ from collections import Counter
 from typing import Any, Dict, Iterable, Iterator
 
 from . import Sieve
+from .corpus import Corpus
 from .dictionary import InMemoryDictionary
 from .normalizer import Normalizer
 from .tokenizer import Tokenizer
-from .corpus import Corpus
 
 
 class NaiveBayesClassifier:
@@ -62,7 +62,7 @@ class NaiveBayesClassifier:
         Builds up the overall vocabulary as seen in the training set.
         """
         for category in training_set:
-            for document in training_set[category]: # iterable handling borrowed from invertedindex.py:
+            for document in training_set[category]:  # iterable handling borrowed from invertedindex.py:
                 all_terms = itertools.chain.from_iterable(self.__get_terms(document.get_field(f, "")) for f in fields)
 
                 for term in all_terms:
@@ -73,7 +73,7 @@ class NaiveBayesClassifier:
         Estimates all conditional probabilities (or, rather, log-probabilities) needed for
         the naive Bayes classifier.
         """
-        for category in training_set: # populate conditionals with 1 smoothing occurrence per term:
+        for category in training_set:  # populate conditionals with 1 smoothing occurrence per term:
             self.__conditionals[category] = {term: 1 for term, _ in self.__vocabulary}
             tot_term_occurrences = len(self.__vocabulary)
 
@@ -90,8 +90,6 @@ class NaiveBayesClassifier:
             for term, _ in self.__vocabulary:
                 freq = self.__conditionals[category][term]
                 self.__conditionals[category][term] = math.log(freq / tot_term_occurrences)
-
-
 
     def __get_terms(self, buffer) -> Iterator[str]:
         """
@@ -139,11 +137,12 @@ class NaiveBayesClassifier:
             for term, freq in term_frequencies.items():
                 if term not in self.__vocabulary:
                     continue
-                score += conditionals[term]*freq
+                score += conditionals[term] * freq
 
             scores.sift(score, category)
 
         yield from ({"score": score, "category": cat} for score, cat in scores.winners())
+
 
 # example run of assignments.py e-1:
 r"""
