@@ -1,6 +1,6 @@
 # pylint: disable=missing-module-docstring
 # pylint: disable=line-too-long
-
+import itertools
 import math
 from collections import Counter
 from typing import Any, Dict, Iterable, Iterator
@@ -50,20 +50,32 @@ class NaiveBayesClassifier:
         Estimates all prior probabilities (or, rather, log-probabilities) needed for
         the naive Bayes classifier.
         """
-        raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
+        num_docs = sum((training_set[category].size() for category in training_set))
+
+        for category in training_set:
+            self.__priors[category] = math.log(training_set[category].size() / num_docs)
 
     def __compute_vocabulary(self, training_set, fields) -> None:
         """
         Builds up the overall vocabulary as seen in the training set.
         """
-        raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
+        for category in training_set:
+            for document in training_set[category]: # iterable handling borrowed from invertedindex.py:
+                all_terms = itertools.chain.from_iterable(self.__get_terms(document.get_field(f, "")) for f in fields)
+
+                for term in all_terms:
+                    self.__vocabulary.add_if_absent(term)
+
 
     def __compute_posteriors(self, training_set, fields) -> None:
         """
         Estimates all conditional probabilities (or, rather, log-probabilities) needed for
         the naive Bayes classifier.
         """
-        raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
+        for category in training_set:
+            self.__conditionals[category] = {}
+            num_docs = training_set[category].size()
+            tot_term_occurrences = 0
 
     def __get_terms(self, buffer) -> Iterator[str]:
         """
@@ -88,7 +100,10 @@ class NaiveBayesClassifier:
 
         This is an internal detail having public visibility to facilitate testing.
         """
-        raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
+        assert category in self.__conditionals
+        assert term in self.__conditionals[category]
+
+        return self.__conditionals[category][term]
 
     def classify(self, buffer: str) -> Iterator[Dict[str, Any]]:
         """
@@ -99,4 +114,4 @@ class NaiveBayesClassifier:
         The results yielded back to the client are dictionaries having the keys "score" (float) and
         "category" (str).
         """
-        raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
+        #TODO: raise NotImplementedError("You need to implement this as part of the obligatory assignment.")
