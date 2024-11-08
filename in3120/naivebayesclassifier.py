@@ -75,13 +75,13 @@ class NaiveBayesClassifier:
         """
         for category in training_set:  # populate conditionals with 1 smoothing occurrence per term:
             self.__conditionals[category] = {term: 1 for term, _ in self.__vocabulary}
-            tot_term_occurrences = len(self.__vocabulary)
+            self.__denominators[category] = len(self.__vocabulary)
 
             for document in training_set[category]:  # iterable handling borrowed from invertedindex.py:
                 all_terms = itertools.chain.from_iterable(self.__get_terms(document.get_field(f, "")) for f in fields)
 
                 term_frequencies = Counter(all_terms)  # count actual occurrences
-                tot_term_occurrences += sum(freq for freq in term_frequencies.values())
+                self.__denominators[category] += sum(freq for freq in term_frequencies.values())
 
                 for term, freq in term_frequencies.items():  # add up for each term
                     self.__conditionals[category][term] += freq
@@ -89,7 +89,7 @@ class NaiveBayesClassifier:
             # calculate log-probabilities for current class:
             for term, _ in self.__vocabulary:
                 freq = self.__conditionals[category][term]
-                self.__conditionals[category][term] = math.log(freq / tot_term_occurrences)
+                self.__conditionals[category][term] = math.log(freq / self.__denominators[category])
 
     def __get_terms(self, buffer) -> Iterator[str]:
         """
@@ -134,10 +134,11 @@ class NaiveBayesClassifier:
 
         for category, conditionals in self.__conditionals.items():
             score = self.__priors[category]
+
             for term, freq in term_frequencies.items():
                 if term not in self.__vocabulary:
                     continue
-                score += conditionals[term] * freq
+                score += conditionals[term] * freq  # adding log-probs for each occurrence of a learned term.
 
             scores.sift(score, category)
 
